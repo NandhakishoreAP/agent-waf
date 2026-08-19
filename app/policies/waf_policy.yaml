@@ -1,0 +1,39 @@
+policy_version: "v1"
+mode: enforce
+
+rate_limits:
+  - tool: "crm.read"
+    max_calls: 5
+    window_seconds: 60
+
+  - tool: "db.delete"
+    max_calls: 2
+    window_seconds: 60
+
+parameter_validation:
+  - tool: "*"
+    blocklist_patterns:
+      - "(?i)ignore (all|previous) instructions"
+      - "(?i)DROP TABLE"
+      - "(?i)<script"
+      - "(?i)system:|assistant:|<\\|im_start\\|>"
+    max_param_length: 2000
+
+data_scope:
+  - tool: "crm.read"
+    rule: "customer_id == session.customer_id"
+
+  - tool: "crm.write"
+    rule: "customer_id == session.customer_id"
+
+  - tool: "db.delete"
+    rule: "record_count <= 100"
+
+sequence_rules:
+  - tool: "email.send"
+    requires_prior:
+      - "crm.read"
+
+  - tool: "db.delete"
+    requires_prior:
+      - "db.backup_check"

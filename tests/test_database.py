@@ -1,6 +1,6 @@
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -59,12 +59,12 @@ async def test_db_relations(db_session: AsyncSession):
     assert retrieved_agent.logs[0].tool_name == "crm.read"
     assert retrieved_agent.logs[0].final_disposition == DispositionEnum.ALLOWED
 
-@pytest.mark.asyncio
-async def test_health_check_endpoint():
-    # Test the API /health endpoint
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        response = await ac.get("/health")
+def test_health_check_endpoint():
+    # Test the API /health endpoint with TestClient (ensuring lifespan initialization occurs)
+    with TestClient(app) as client:
+        response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
         assert data["checks"]["database"] == "ok"
+        assert data["checks"]["policy"] == "ok"
