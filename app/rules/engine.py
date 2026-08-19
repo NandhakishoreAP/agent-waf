@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Dict, Any, List
 from pydantic import BaseModel, Field, ConfigDict
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas import WAFPolicy
 
 logger = logging.getLogger("agent_waf.rules.engine")
@@ -32,7 +33,7 @@ class ToolInvocationContext(BaseModel):
 # Common Rule Interface
 class BaseRule(ABC):
     @abstractmethod
-    def evaluate(self, context: ToolInvocationContext, policy: WAFPolicy) -> RuleEvaluation:
+    async def evaluate(self, context: ToolInvocationContext, policy: WAFPolicy, db: AsyncSession) -> RuleEvaluation:
         """Evaluate the rule against the invocation context and the current policy."""
         pass
 
@@ -71,13 +72,13 @@ class RuleEngine:
         # Enforce deterministic order
         self.rules = sorted(rules, key=_get_rule_order)
 
-    def evaluate(self, context: ToolInvocationContext) -> RuleEngineResult:
+    async def evaluate(self, context: ToolInvocationContext, db: AsyncSession) -> RuleEngineResult:
         evaluations: List[RuleEvaluation] = []
         all_passed = True
 
         for rule in self.rules:
             try:
-                evaluation = rule.evaluate(context, self.policy)
+                evaluation = await rule.evaluate(context, self.policy, db)
                 evaluations.append(evaluation)
                 if not evaluation.passed:
                     all_passed = False

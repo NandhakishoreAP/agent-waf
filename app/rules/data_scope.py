@@ -1,8 +1,9 @@
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.rules.engine import BaseRule, RuleEvaluation, ToolInvocationContext
 from app.schemas import WAFPolicy
 
 class DataScopeRule(BaseRule):
-    def evaluate(self, context: ToolInvocationContext, policy: WAFPolicy) -> RuleEvaluation:
+    async def evaluate(self, context: ToolInvocationContext, policy: WAFPolicy, db: AsyncSession) -> RuleEvaluation:
         # Placeholder for data scope rule (scope expression evaluation is a future milestone)
         return RuleEvaluation(
             rule="data_scope",

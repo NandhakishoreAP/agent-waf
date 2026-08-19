@@ -101,7 +101,8 @@ def test_deterministic_rule_execution_order():
         "SequenceRule"
     ]
 
-def test_rule_engine_returns_structured_evaluations():
+@pytest.mark.asyncio
+async def test_rule_engine_returns_structured_evaluations():
     # 8. RuleEngine returns structured evaluations.
     # 9. With the placeholder rules, the engine returns ALLOWED.
     rules = [
@@ -121,17 +122,18 @@ def test_rule_engine_returns_structured_evaluations():
         session_context={}
     )
     
-    result = engine.evaluate(context)
+    result = await engine.evaluate(context, None)
     assert result.final_disposition == FinalDisposition.ALLOWED
     assert len(result.evaluations) == 4
     for eval_obj in result.evaluations:
         assert isinstance(eval_obj, RuleEvaluation)
         assert eval_obj.passed is True
 
-def test_rule_exceptions_not_silent():
+@pytest.mark.asyncio
+async def test_rule_exceptions_not_silent():
     # 10. Rule exceptions are not silently swallowed.
     class BrokenRule(BaseRule):
-        def evaluate(self, context, policy):
+        async def evaluate(self, context, policy, db):
             raise RuntimeError("Database disconnected or internal failure")
             
     policy = get_mock_policy()
@@ -146,6 +148,6 @@ def test_rule_exceptions_not_silent():
     )
     
     with pytest.raises(RuleEvaluationError) as exc_info:
-        engine.evaluate(context)
+        await engine.evaluate(context, None)
         
     assert "BrokenRule failed execution" in str(exc_info.value)

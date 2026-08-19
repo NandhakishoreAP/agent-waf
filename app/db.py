@@ -1,4 +1,5 @@
 from typing import AsyncGenerator
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
 from app.config import settings
@@ -24,10 +25,18 @@ SessionLocal = async_sessionmaker(
 
 Base = declarative_base()
 
+# Configure SQLite to use WAL mode for concurrency safety during local development
+if settings.DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine.sync_engine, "connect")
+    def set_wal_mode(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.close()
+
 async def init_db() -> None:
     """Initialize DB tables."""
     # Import models here to register them with Base.metadata and prevent circular imports
-    from app.models import Agent, ToolCallLog
+    from app.models import Agent, ToolCallLog, RateLimitEvent
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

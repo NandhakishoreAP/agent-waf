@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from enum import Enum as PyEnum
-from sqlalchemy import Column, String, DateTime, JSON, Integer, ForeignKey, Enum
+from sqlalchemy import Column, String, DateTime, JSON, Integer, ForeignKey, Enum, Index
 from sqlalchemy.orm import relationship
 from app.db import Base
 
@@ -47,3 +47,15 @@ class ToolCallLog(Base):
 
     # Relationship back to the agent
     agent = relationship("Agent", back_populates="logs")
+
+class RateLimitEvent(Base):
+    __tablename__ = "rate_limit_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(String, nullable=False, index=True)
+    tool_name = Column(String, nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+
+    __table_args__ = (
+        Index("ix_rate_limit_events_lookup", "agent_id", "tool_name", "timestamp"),
+    )
