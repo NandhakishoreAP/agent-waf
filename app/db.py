@@ -36,7 +36,7 @@ if settings.DATABASE_URL.startswith("sqlite"):
 async def init_db() -> None:
     """Initialize DB tables."""
     # Import models here to register them with Base.metadata and prevent circular imports
-    from app.models import Agent, ToolCallLog, RateLimitEvent
+    from app.models import Agent, ToolCallLog, RateLimitEvent, SequenceEvent
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

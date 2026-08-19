@@ -59,3 +59,17 @@ class RateLimitEvent(Base):
     __table_args__ = (
         Index("ix_rate_limit_events_lookup", "agent_id", "tool_name", "timestamp"),
     )
+
+class SequenceEvent(Base):
+    __tablename__ = "sequence_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String, nullable=False, index=True)
+    agent_id = Column(String, nullable=False, index=True)
+    tool_name = Column(String, nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+
+    __table_args__ = (
+        Index("ix_sequence_events_lookup", "session_id", "tool_name", "timestamp"),
+        Index("ix_sequence_events_integrity", "agent_id", "session_id", "tool_name"),
+    )
