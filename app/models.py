@@ -73,3 +73,9 @@ class SequenceEvent(Base):
         Index("ix_sequence_events_lookup", "session_id", "tool_name", "timestamp"),
         Index("ix_sequence_events_integrity", "agent_id", "session_id", "tool_name"),
     )
+
+class SessionContext(Base):
+    __tablename__ = "session_contexts"
+
+    session_id = Column(String, primary_key=True, index=True)
+    customer_id = Column(String, nullable=False)

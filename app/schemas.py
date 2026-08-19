@@ -76,3 +76,20 @@ class WAFPolicy(BaseModel):
     parameter_validation: list[ParameterValidationPolicy] = Field(default_factory=list)
     data_scope: list[DataScopePolicy] = Field(default_factory=list)
     sequence_rules: list[SequencePolicy] = Field(default_factory=list)
+
+class WafInvokeRequest(BaseModel):
+    agent_id: str = Field(..., min_length=1, max_length=255, description="Client-claimed agent ID")
+    session_id: str = Field(..., min_length=1, max_length=255, description="Session ID tracking")
+    tool: str = Field(..., min_length=1, max_length=255, description="Tool name requested")
+    parameters: dict = Field(default_factory=dict, description="Tool parameters context")
+
+    model_config = ConfigDict(extra="forbid")
+
+class WafInvokeResponse(BaseModel):
+    allowed: bool
+    agent_id: str
+    session_id: str
+    tool: str
+    disposition: str
+    rules: list = Field(default_factory=list)
+    tool_result: Optional[Any] = None

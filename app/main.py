@@ -8,6 +8,7 @@ from app.db import init_db
 from app.deps import get_db_session
 from app.config import settings, load_policy_yaml
 from app.schemas import WAFPolicy
+from app.api.waf import router as waf_router
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +36,8 @@ app = FastAPI(
     description="Agent WAF - Policy-enforcing proxy between autonomous agent and tools",
     lifespan=lifespan
 )
+
+app.include_router(waf_router)
 
 @app.get("/")
 async def read_root():
