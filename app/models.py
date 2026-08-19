@@ -10,6 +10,7 @@ class DispositionEnum(str, PyEnum):
     BLOCKED = "BLOCKED"
     SHADOW_BLOCKED = "SHADOW_BLOCKED"
 
+
 class Agent(Base):
     __tablename__ = "agents"
 
@@ -17,8 +18,8 @@ class Agent(Base):
     name = Column(String, nullable=False)
     declared_scope = Column(JSON, nullable=False)  # JSON allowed scope
     created_at = Column(
-        DateTime, 
-        default=lambda: datetime.now(timezone.utc), 
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
         nullable=False
     )
 
@@ -30,8 +31,8 @@ class ToolCallLog(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     timestamp = Column(
-        DateTime, 
-        default=lambda: datetime.now(timezone.utc), 
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
         nullable=False
     )
     agent_id = Column(String, ForeignKey("agents.agent_id"), nullable=False)
@@ -40,7 +41,7 @@ class ToolCallLog(Base):
     parameters_sanitized = Column(JSON, nullable=False)  # Redacted parameters JSON
     rule_evaluations = Column(JSON, nullable=False)      # Evaluated rule outcomes JSON
     final_disposition = Column(
-        Enum(DispositionEnum, native_enum=False), 
+        Enum(DispositionEnum, native_enum=False),
         nullable=False
     )
     latency_ms = Column(Integer, nullable=True)          # Nullable latency in milliseconds
