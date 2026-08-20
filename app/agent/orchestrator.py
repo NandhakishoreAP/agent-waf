@@ -3,6 +3,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from app.config import settings
 from app.agent.client import WAFClient, WAFResult
+from app.schemas.tool_call_spec import ToolCallSpec
 from app.agent.providers import LLMProvider
 
 logger = logging.getLogger("agent_waf.agent.orchestrator")
@@ -113,39 +114,7 @@ class Agent:
         self.tools = TOOL_SCHEMAS
         self.correlation_id = correlation_id
 
-    def _validate_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[str]:
-        """
-        Validates the arguments format and required keys locally as an untrusted client validation check.
-        Returns error string if invalid, None otherwise.
-        """
-        schemas = {t["name"]: t for t in self.tools}
-        if tool_name not in schemas:
-            return f"Unknown tool: {tool_name}"
 
-        schema = schemas[tool_name]
-        parameters_spec = schema.get("parameters", {})
-        required_keys = parameters_spec.get("required", [])
-        properties = parameters_spec.get("properties", {})
-
-        # Check required fields
-        for rk in required_keys:
-            if rk not in arguments:
-                return f"Missing required parameter: {rk}"
-
-        # Check parameter types
-        for k, v in arguments.items():
-            if k in properties:
-                expected_type = properties[k].get("type")
-                if expected_type == "string" and not isinstance(v, str):
-                    return f"Parameter {k} must be string"
-                elif expected_type == "integer" and not isinstance(v, int):
-                    return f"Parameter {k} must be integer"
-                elif expected_type == "object" and not isinstance(v, dict):
-                    return f"Parameter {k} must be object"
-                elif expected_type == "array" and not isinstance(v, list):
-                    return f"Parameter {k} must be list"
-        
-        return None
 
     async def run(self, task: str) -> AgentRunResult:
         messages = [
@@ -191,42 +160,64 @@ class Agent:
                     break
 
                 for tc in tool_calls:
-                    tool_name = tc.get("name")
-                    arguments = tc.get("arguments", {})
-                    call_id = tc.get("id")
+                    # Validate tool call using ToolCallSpec model
+                    try:
+                        spec = ToolCallSpec(
+                            tool=tc.get("name"),
+                            parameters=tc.get("arguments", {})
+                        )
+                        call_id = tc.get("id")
+                    except Exception as ve:
+                        validation_err = str(ve)
+                        logger.warning(f"Tool call validation error: {validation_err}")
+                        # Record as blocked due to validation failure
+                        blocked_calls.append({
+                            "id": tc.get("id"),
+                            "tool": tc.get("name"),
+                            "parameters": tc.get("arguments", {}),
+                            "allowed": False,
+                            "disposition": "BLOCKED",
+                            "error": validation_err
+                        })
+                        # Append a tool message with the error so LLM can react
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.get("id"),
+                            "name": tc.get("name"),
+                            "content": f"Error: Invalid tool call specification. {validation_err}"
+                        })
+                        continue  # skip invoking WAF for this malformed call
 
-                    # 1. First run syntactic validation check locally (as required by prompt)
-                    validation_err = self._validate_tool_call(tool_name, arguments)
-                    
-                    if validation_err:
-                        logger.warning(f"Tool call locally failed validation: {validation_err}")
-                        # Even if locally failed, we must route it to WAF client to enforce the fail-closed boundary
-                        # (WAF client will handle unknown/malformed tools via the registry)
-
-                    # 2. Invoke WAF Client to securely intermediate tool call (no direct tool execution)
-                    waf_res = await self.waf_client.invoke(
-                        agent_id=self.agent_id,
-                        session_id=self.session_id,
-                        tool=tool_name,
-                        parameters=arguments,
-                        correlation_id=self.correlation_id
-                    )
+                    # Invoke WAF Client to securely intermediate tool call
+                    # Invoke WAF Client with tool name and parameters only
+                    try:
+                        waf_res = await self.waf_client.invoke(
+                            agent_id=self.agent_id,
+                            session_id=self.session_id,
+                            tool=spec.tool,
+                            parameters=spec.parameters,
+                            correlation_id=self.correlation_id
+                        )
+                    except Exception as e:
+                        logger.error(f"WAF client invocation failed: {e}", exc_info=True)
+                        # Treat as blocked with error info
+                        waf_res = WAFResult(allowed=False, disposition="BLOCKED", error=str(e))
 
                     # Gather the execution records
                     call_record = {
                         "id": call_id,
-                        "tool": tool_name,
-                        "parameters": arguments,
+                        "tool": spec.tool,
+                        "parameters": spec.parameters,
                         "allowed": waf_res.allowed,
                         "disposition": waf_res.disposition
                     }
 
                     if waf_res.allowed:
-                        logger.info(f"WAF ALLOWED invocation of tool `{tool_name}` successfully.")
+                        logger.info(f"WAF ALLOWED invocation of tool `{spec.tool}` successfully.")
                         tool_calls_made.append(call_record)
                         tool_result_content = json.dumps(waf_res.tool_result)
                     else:
-                        logger.info(f"WAF BLOCKED invocation of tool `{tool_name}`: {waf_res.error}")
+                        logger.info(f"WAF BLOCKED invocation of tool `{spec.tool}`: {waf_res.error}")
                         blocked_calls.append(call_record)
                         tool_result_content = f"Error: Tool call blocked by security policy. Reason: {waf_res.error or 'Blocked by WAF'}"
 
@@ -238,8 +229,8 @@ class Agent:
                             "id": call_id,
                             "type": "function",
                             "function": {
-                                "name": tool_name,
-                                "arguments": json.dumps(arguments)
+                                "name": spec.tool,
+                                "arguments": json.dumps(spec.parameters)
                             }
                         }]
                     })
@@ -247,11 +238,21 @@ class Agent:
                     messages.append({
                         "role": "tool",
                         "tool_call_id": call_id,
-                        "name": tool_name,
+                        "name": spec.tool,
                         "content": tool_result_content
                     })
 
                     if not waf_res.allowed:
+                        # Record blocked call reason if not already captured
+                        if not any(bc.get("id") == call_id for bc in blocked_calls):
+                            blocked_calls.append({
+                                "id": call_id,
+                                "tool": spec.tool,
+                                "parameters": spec.parameters,
+                                "allowed": False,
+                                "disposition": waf_res.disposition,
+                                "error": getattr(waf_res, "error", "Blocked by WAF")
+                            })
                         final_answer = tool_result_content
                         loop_status = "blocked"
                         break
