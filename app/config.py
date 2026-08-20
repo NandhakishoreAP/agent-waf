@@ -15,6 +15,14 @@ class Settings:
     WAF_ADMIN_API_KEY: str = os.getenv("WAF_ADMIN_API_KEY", "changeme")
     POLICY_FILE: str = os.getenv("POLICY_FILE", "app/policies/waf_policy.yaml")
 
+    # Agent and LLM integration
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")
+    OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    AGENT_WAF_URL: str = os.getenv("AGENT_WAF_URL", "http://127.0.0.1:8000")
+    AGENT_WAF_TIMEOUT_SECONDS: float = float(os.getenv("AGENT_WAF_TIMEOUT_SECONDS", "5.0"))
+    MAX_AGENT_STEPS: int = int(os.getenv("MAX_AGENT_STEPS", "10"))
+
 settings = Settings()
 
 def load_policy_yaml(filepath: str):

@@ -86,6 +86,48 @@ async def invoke_tool(
         )
 
     # 4. Evaluate all security rules (enforce order: rate_limit -> param_validation -> data_scope -> sequence)
+    import time
+    start_time = time.time()
+
+    async def write_audit_log(disposition_val: str, rules_list: list, status_code: int):
+        try:
+            from app.models import ToolCallLog, DispositionEnum
+            # Sanitize parameters (redact malicious prompt injections and common secrets)
+            sanitized_params = {}
+            for k, v in body.parameters.items():
+                if isinstance(v, str) and ("ignore" in v.lower() or "secret" in k.lower() or "token" in k.lower() or "password" in k.lower()):
+                    sanitized_params[k] = "[REDACTED]"
+                else:
+                    sanitized_params[k] = v
+
+            # Match final disposition enum
+            if disposition_val == "ALLOWED":
+                enum_disp = DispositionEnum.ALLOWED
+            elif disposition_val in ("BLOCKED", "TOOL_ERROR"): # Map block/error status securely
+                enum_disp = DispositionEnum.BLOCKED
+            else:
+                enum_disp = DispositionEnum.SHADOW_BLOCKED
+
+            latency = int((time.time() - start_time) * 1000)
+
+            audit_log = ToolCallLog(
+                agent_id=body.agent_id,
+                session_id=body.session_id,
+                tool_name=body.tool,
+                parameters_sanitized=sanitized_params,
+                rule_evaluations=rules_list,
+                final_disposition=enum_disp,
+                latency_ms=latency
+            )
+            db.add(audit_log)
+            await db.commit()
+        except Exception as ex:
+            logger.error(f"Failed to record WAF database audit log: {ex}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Security WAF state update failed"
+            )
+
     try:
         engine = RuleEngine(policy, [
             RateLimitRule(),
@@ -104,6 +146,7 @@ async def invoke_tool(
                 "reason": f"Internal security validator failure: {str(e)}"
             }
         ]
+        await write_audit_log("BLOCKED", rules_evals, 403)
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN,
             content={
@@ -128,6 +171,7 @@ async def invoke_tool(
 
     # 5. Handle WAF Block response (fail-closed immediately, avoiding tool execution)
     if engine_result.final_disposition in (FinalDisposition.BLOCKED, FinalDisposition.SHADOW_BLOCKED):
+        await write_audit_log("BLOCKED", rules_evals, 403)
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN,
             content={
@@ -147,6 +191,7 @@ async def invoke_tool(
     except Exception as e:
         logger.error(f"Registered tool '{body.tool}' handler raised an runtime exception: {e}", exc_info=True)
         # TOOL_ERROR: Allowed to execute, but tool failed. Do NOT record sequence event context.
+        await write_audit_log("TOOL_ERROR", rules_evals, 200)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -170,6 +215,9 @@ async def invoke_tool(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Security WAF state update failed"
         )
+
+    # Write audit log to database on successful allowance path
+    await write_audit_log("ALLOWED", rules_evals, 200)
 
     # 8. Return successful response
     return {

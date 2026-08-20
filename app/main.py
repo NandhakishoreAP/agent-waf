@@ -9,6 +9,7 @@ from app.deps import get_db_session
 from app.config import settings, load_policy_yaml
 from app.schemas import WAFPolicy
 from app.api.waf import router as waf_router
+from app.api.agent import router as agent_router
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +39,7 @@ app = FastAPI(
 )
 
 app.include_router(waf_router)
+app.include_router(agent_router)
 
 @app.get("/")
 async def read_root():
