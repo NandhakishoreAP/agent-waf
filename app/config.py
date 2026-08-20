@@ -9,6 +9,11 @@ load_dotenv()
 logger = logging.getLogger("agent_waf.config")
 
 class Settings:
+    APP_ENV: str = os.getenv("APP_ENV", "development")
+    HOST: str = os.getenv("HOST", "0.0.0.0")
+    PORT: int = int(os.getenv("PORT", "8000"))
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
     GROQ_API_KEY: str | None = os.getenv("GROQ_API_KEY")
     GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./agent_waf.db")
@@ -28,7 +33,22 @@ class Settings:
     OBSERVABILITY_MAX_PAGE_SIZE: int = int(os.getenv("OBSERVABILITY_MAX_PAGE_SIZE", "100"))
     SSE_HEARTBEAT_SECONDS: int = int(os.getenv("SSE_HEARTBEAT_SECONDS", "15"))
 
+    def validate_production(self):
+        if self.APP_ENV.lower() == "production":
+            # 1. Require DATABASE_URL pointing to a production-grade DB (PostgreSQL)
+            if not self.DATABASE_URL or "sqlite" in self.DATABASE_URL:
+                raise ValueError("DATABASE_URL must be configured with PostgreSQL in production environment")
+            
+            # 2. Reject dev-only administrative secret configuration
+            if self.WAF_ADMIN_API_KEY == "changeme":
+                raise ValueError("WAF_ADMIN_API_KEY must not be the default value ('changeme') in production")
+
+            # 3. Ensure API keys / LLM secrets are populated in production if used
+            if self.LLM_PROVIDER == "openai" and not self.OPENAI_API_KEY:
+                raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER is 'openai' in production")
+
 settings = Settings()
+settings.validate_production()
 
 def load_policy_yaml(filepath: str):
     """

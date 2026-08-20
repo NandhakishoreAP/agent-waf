@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
 import logging
+import contextvars
+import os
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,14 +13,39 @@ from app.schemas import WAFPolicy
 from app.api.waf import router as waf_router
 from app.api.agent import router as agent_router
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Set up correlation ID tracking in logs
+correlation_id_context = contextvars.ContextVar("correlation_id", default="-")
+
+class CorrelationIdFilter(logging.Filter):
+    def filter(self, record):
+        record.correlation_id = correlation_id_context.get()
+        return True
+
+# Read log level from settings/env
+log_level_str = os.getenv("LOG_LEVEL", settings.LOG_LEVEL).upper()
+numeric_level = getattr(logging, log_level_str, logging.INFO)
+
+# Configure Root Logger to output structured/formatted logs directly to stdout/stderr
+root_logger = logging.getLogger()
+root_logger.setLevel(numeric_level)
+
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] [service=agent-waf] [correlation_id=%(correlation_id)s] [%(name)s] %(message)s')
+handler.setFormatter(formatter)
+handler.addFilter(CorrelationIdFilter())
+
+root_logger.handlers = [handler]
+
 logger = logging.getLogger("agent_waf.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database tables
-    await init_db()
+    # Initialize database tables for non-production environments
+    if settings.APP_ENV.lower() != "production":
+        logger.info(f"Initializing database schema in {settings.APP_ENV} mode...")
+        await init_db()
+    else:
+        logger.info("Production mode detected. Bypassing automatic database schema initialization.")
     
     # Load WAF policy
     try:
@@ -31,6 +58,25 @@ async def lifespan(app: FastAPI):
         app.state.policy_loaded = False
         
     yield
+    
+    # Startup/Shutdown cleanup hook
+    logger.info("Executing lifespan shutdown cleanups...")
+    
+    # dispose database connection pool
+    try:
+        from app.db import engine
+        await engine.dispose()
+        logger.info("Database engine connections closed successfully.")
+    except Exception as e:
+        logger.error(f"Error disposing database connections: {e}")
+        
+    # clear active SSE subscribers
+    try:
+        from app.observability.publisher import _subscribers
+        logger.info(f"Clearing {len(_subscribers)} active SSE subscriber queues.")
+        _subscribers.clear()
+    except Exception as e:
+        logger.error(f"Error cleaning SSE subscribers: {e}")
 
 import uuid
 import re
@@ -50,6 +96,7 @@ async def correlation_id_middleware(request: Request, call_next):
     if not corr_id or not CORRELATION_ID_PATTERN.match(corr_id):
         corr_id = str(uuid.uuid4())
     
+    correlation_id_context.set(corr_id)
     request.state.correlation_id = corr_id
     
     response = await call_next(request)
@@ -87,6 +134,26 @@ async def serve_dashboard():
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dashboard static file template not found."
         )
+
+@app.get("/ready")
+async def ready_check(request: Request, db: AsyncSession = Depends(get_db_session)):
+    """Readiness probe checking database connectivity and policy availability."""
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"Readiness Database Failure: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connectivity unreachable"
+        )
+        
+    if not getattr(request.app.state, "policy_loaded", False) or request.app.state.policy is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Security policy is not loaded"
+        )
+        
+    return {"status": "ready"}
 
 @app.get("/health")
 async def health_check(request: Request, db: AsyncSession = Depends(get_db_session)):

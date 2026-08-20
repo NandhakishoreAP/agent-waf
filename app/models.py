@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime, timezone
 from enum import Enum as PyEnum
-from sqlalchemy import Column, String, DateTime, JSON, Integer, ForeignKey, Enum, Index
+from sqlalchemy import Column, String, JSON, Integer, ForeignKey, Enum, Index
 from sqlalchemy.orm import relationship
-from app.db import Base
+from app.db import Base, TZDateTime
 
 class DispositionEnum(str, PyEnum):
     ALLOWED = "ALLOWED"
@@ -18,7 +18,7 @@ class Agent(Base):
     name = Column(String, nullable=False)
     declared_scope = Column(JSON, nullable=False)  # JSON allowed scope
     created_at = Column(
-        DateTime,
+        TZDateTime,
         default=lambda: datetime.now(timezone.utc),
         nullable=False
     )
@@ -31,7 +31,7 @@ class ToolCallLog(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     timestamp = Column(
-        DateTime,
+        TZDateTime,
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
         index=True
@@ -40,7 +40,7 @@ class ToolCallLog(Base):
     session_id = Column(String, nullable=False)
     tool_name = Column(String, nullable=False, index=True)
     parameters_sanitized = Column(JSON, nullable=False)  # Redacted parameters JSON
-    rule_evaluations = Column(JSON, nullable=False)      # Evaluated rule outcomes JSON
+    rule_evaluations = Column(JSON, nullable=False)      # Evaluated WAF rules JSON
     final_disposition = Column(
         Enum(DispositionEnum, native_enum=False),
         nullable=False,
@@ -58,7 +58,7 @@ class RateLimitEvent(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     agent_id = Column(String, nullable=False, index=True)
     tool_name = Column(String, nullable=False, index=True)
-    timestamp = Column(DateTime, nullable=False, index=True)
+    timestamp = Column(TZDateTime, nullable=False, index=True)
 
     __table_args__ = (
         Index("ix_rate_limit_events_lookup", "agent_id", "tool_name", "timestamp"),
@@ -71,7 +71,7 @@ class SequenceEvent(Base):
     session_id = Column(String, nullable=False, index=True)
     agent_id = Column(String, nullable=False, index=True)
     tool_name = Column(String, nullable=False, index=True)
-    timestamp = Column(DateTime, nullable=False, index=True)
+    timestamp = Column(TZDateTime, nullable=False, index=True)
 
     __table_args__ = (
         Index("ix_sequence_events_lookup", "session_id", "tool_name", "timestamp"),

@@ -1,11 +1,52 @@
 version: '3.8'
 
 services:
-  web:
-    build: .
+  db:
+    image: postgres:15-alpine
+    container_name: agent_waf_db
+    environment:
+      POSTGRES_USER: waf_user
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: agent_waf
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "54321:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waf_user -d agent_waf"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - waf-network
+
+  agent-waf:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agent_waf_app
     ports:
       - "8000:8000"
-    env_file:
-      - .env
-    volumes:
-      - .:/app
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql+asyncpg://waf_user:devpassword@db/agent_waf
+      - SEED_TEST_DATA=true
+      - WAF_ADMIN_API_KEY=dev_admin_key_override
+      - LLM_PROVIDER=openai
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-dev_mock_key_for_testing}
+      - OPENAI_MODEL=gpt-4o-mini
+      - PORT=8000
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "python -m scripts.db_init_prod && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
+    networks:
+      - waf-network
+
+volumes:
+  pgdata:
+
+networks:
+  waf-network:
+    driver: bridge

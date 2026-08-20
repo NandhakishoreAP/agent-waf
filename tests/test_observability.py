@@ -247,3 +247,47 @@ async def test_sse_generator_and_heartbeat():
     assert event_data["correlation_id"] == "test-corr"
     
     await unsubscribe(queue)
+
+
+@pytest.mark.asyncio
+async def test_timezone_awareness_regression(db_session, test_client):
+    from sqlalchemy import select
+    # Proves TZDateTime preserves timezone awareness on both writes and queries
+    async with db_session() as session:
+        # Create a log with explicit timezone-aware UTC datetime
+        aware_time = datetime.now(timezone.utc)
+        log = ToolCallLog(
+            id="log-tz-test",
+            agent_id="obs-agent",
+            session_id="session-tz",
+            tool_name="crm.read",
+            parameters_sanitized={},
+            rule_evaluations=[],
+            final_disposition=DispositionEnum.ALLOWED,
+            latency_ms=5,
+            correlation_id="corr-tz-test",
+            timestamp=aware_time
+        )
+        session.add(log)
+        await session.commit()
+    
+    # Retrieve via API which triggers query using threshold
+    response = test_client.get("/api/observability/events?window=5m&limit=10")
+    assert response.status_code == 200
+    events = response.json()
+    # Find our test event
+    test_event = next((e for e in events if e["id"] == "log-tz-test"), None)
+    assert test_event is not None
+    
+    # Check that retrieved datetime is parsed as aware
+    dt_parsed = datetime.fromisoformat(test_event["timestamp"].replace("Z", "+00:00"))
+    assert dt_parsed.tzinfo is not None
+    
+    # Query via DB and verify timezone is explicitly present and set to UTC
+    async with db_session() as session:
+        stmt = select(ToolCallLog).where(ToolCallLog.id == "log-tz-test")
+        res = await session.execute(stmt)
+        db_log = res.scalar_one()
+        assert db_log.timestamp.tzinfo is not None
+        assert db_log.timestamp.tzinfo == timezone.utc
+

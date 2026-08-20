@@ -4,15 +4,25 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import declarative_base
 from app.config import settings
 
+import os
+from app.config import settings
+
 # SQLite connection args to allow multi-threaded access in development
-connect_args = {}
+engine_args = {}
 if settings.DATABASE_URL.startswith("sqlite"):
-    connect_args["check_same_thread"] = False
+    engine_args["connect_args"] = {"check_same_thread": False}
+else:
+    # PostgreSQL production pooling settings
+    engine_args["pool_size"] = int(os.getenv("DATABASE_POOL_SIZE", "10"))
+    engine_args["max_overflow"] = int(os.getenv("DATABASE_MAX_OVERFLOW", "20"))
+    engine_args["pool_timeout"] = float(os.getenv("DATABASE_POOL_TIMEOUT", "30.0"))
+    engine_args["pool_recycle"] = int(os.getenv("DATABASE_POOL_RECYCLE", "1800"))
+    engine_args["pool_pre_ping"] = True  # Connection liveness check
 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    connect_args=connect_args,
-    echo=False
+    echo=False,
+    **engine_args
 )
 
 SessionLocal = async_sessionmaker(
@@ -24,6 +34,29 @@ SessionLocal = async_sessionmaker(
 )
 
 Base = declarative_base()
+
+from sqlalchemy.types import TypeDecorator, DateTime
+from datetime import datetime, timezone
+
+class TZDateTime(TypeDecorator):
+    """
+    SQLAlchemy DataType to ensure timezone-aware UTC datetime objects are used everywhere,
+    mapping to TIMESTAMP WITH TIME ZONE in PostgreSQL and timezone-aware datetimes in SQLite.
+    """
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+        return value
 
 # Configure SQLite to use WAL mode for concurrency safety during local development
 if settings.DATABASE_URL.startswith("sqlite"):
