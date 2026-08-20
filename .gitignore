@@ -21,6 +21,8 @@ htmlcov/
 # Database
 *.db
 *.sqlite3
+*.db-wal
+*.db-shm
 
 # IDE / Editor settings
 .vscode/
