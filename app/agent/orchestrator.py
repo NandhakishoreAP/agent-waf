@@ -160,7 +160,7 @@ class Agent:
                     break
 
                 for tc in tool_calls:
-                    # Validate tool call using ToolCallSpec model
+                    # Structural validation using ToolCallSpec
                     try:
                         spec = ToolCallSpec(
                             tool=tc.get("name"),
@@ -169,8 +169,8 @@ class Agent:
                         call_id = tc.get("id")
                     except Exception as ve:
                         validation_err = str(ve)
-                        logger.warning(f"Tool call validation error: {validation_err}")
-                        # Record as blocked due to validation failure
+                        logger.warning(f"Tool call structural validation error: {validation_err}")
+                        # Record blocked call and abort orchestration
                         blocked_calls.append({
                             "id": tc.get("id"),
                             "tool": tc.get("name"),
@@ -179,37 +179,129 @@ class Agent:
                             "disposition": "BLOCKED",
                             "error": validation_err
                         })
-                        # Append a tool message with the error so LLM can react
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.get("id"),
-                            "name": tc.get("name"),
-                            "content": f"Error: Invalid tool call specification. {validation_err}"
-                        })
-                        continue  # skip invoking WAF for this malformed call
+                        final_answer = f"Error: Invalid tool call. {validation_err}"
+                        loop_status = "blocked"
+                        break
 
-                    # Invoke WAF Client to securely intermediate tool call
-                    # Invoke WAF Client with tool name and parameters only
+                    # Schema validation against TOOL_SCHEMAS
+                    schema = next((s for s in self.tools if s["name"] == spec.tool), None)
+                    if not schema:
+                        schema_err = f"Tool '{spec.tool}' is not registered."
+                        logger.warning(schema_err)
+                        blocked_calls.append({
+                            "id": call_id,
+                            "tool": spec.tool,
+                            "parameters": spec.parameters,
+                            "allowed": False,
+                            "disposition": "BLOCKED",
+                            "error": schema_err
+                        })
+                        final_answer = f"Invalid tool call specification: {schema_err} Error."
+                        loop_status = "blocked"
+                        break
+
+                    # Required parameters check
+                    required_params = schema.get("parameters", {}).get("required", [])
+                    missing_params = [p for p in required_params if p not in spec.parameters]
+                    if missing_params:
+                        schema_err = f"Missing required parameters: {', '.join(missing_params)}"
+                        logger.warning(schema_err)
+                        blocked_calls.append({
+                            "id": call_id,
+                            "tool": spec.tool,
+                            "parameters": spec.parameters,
+                            "allowed": False,
+                            "disposition": "BLOCKED",
+                            "error": schema_err
+                        })
+                        final_answer = f"Invalid tool call specification: {schema_err}"
+                        loop_status = "blocked"
+                        break
+
+                    # Unknown parameters check
+                    allowed_props = schema.get("parameters", {}).get("properties", {}).keys()
+                    unknown_params = [p for p in spec.parameters if p not in allowed_props]
+                    if unknown_params:
+                        schema_err = f"Unknown parameters: {', '.join(unknown_params)}"
+                        logger.warning(schema_err)
+                        blocked_calls.append({
+                            "id": call_id,
+                            "tool": spec.tool,
+                            "parameters": spec.parameters,
+                            "allowed": False,
+                            "disposition": "BLOCKED",
+                            "error": schema_err
+                        })
+                        final_answer = f"Invalid tool call specification: {schema_err}"
+                        loop_status = "blocked"
+                        break
+
+                    # Parameter type validation
+                    type_map = {
+                        "string": str,
+                        "integer": int,
+                        "object": dict,
+                        "array": list,
+                    }
+                    props = schema.get("parameters", {}).get("properties", {})
+                    type_error = None
+                    for param_name, param_val in spec.parameters.items():
+                        expected_type = props.get(param_name, {}).get("type")
+                        if expected_type:
+                            py_type = type_map.get(expected_type)
+                            if py_type:
+                                if expected_type == "integer" and isinstance(param_val, bool):
+                                    type_error = f"Parameter '{param_name}' expects integer, got boolean"
+                                    break
+                                if not isinstance(param_val, py_type):
+                                    type_error = f"Parameter '{param_name}' expects {expected_type}, got {type(param_val).__name__}"
+                                    break
+                    if type_error:
+                        logger.warning(type_error)
+                        blocked_calls.append({
+                            "id": call_id,
+                            "tool": spec.tool,
+                            "parameters": spec.parameters,
+                            "allowed": False,
+                            "disposition": "BLOCKED",
+                            "error": type_error
+                        })
+                        final_answer = f"Invalid tool call specification: {type_error}"
+                        loop_status = "blocked"
+                        break
+
+                    # All validations passed – invoke WAF
                     try:
                         waf_res = await self.waf_client.invoke(
-                            agent_id=self.agent_id,
-                            session_id=self.session_id,
-                            tool=spec.tool,
-                            parameters=spec.parameters,
-                            correlation_id=self.correlation_id
+                            self.agent_id,
+                            self.session_id,
+                            spec.tool,
+                            spec.parameters,
+                            correlation_id=self.correlation_id,
                         )
-                    except Exception as e:
-                        logger.error(f"WAF client invocation failed: {e}", exc_info=True)
-                        # Treat as blocked with error info
-                        waf_res = WAFResult(allowed=False, disposition="BLOCKED", error=str(e))
+                    except Exception as we:
+                        # Treat WAF invocation exceptions as blocked calls
+                        err_str = str(we)
+                        logger.error(f"WAF invocation failed: {err_str}", exc_info=True)
+                        blocked_calls.append({
+                            "id": call_id,
+                            "tool": spec.tool,
+                            "parameters": spec.parameters,
+                            "allowed": False,
+                            "disposition": "BLOCKED",
+                            "error": err_str
+                        })
+                        final_answer = f"WAF error: {err_str}"
+                        loop_status = "blocked"
+                        break
 
-                    # Gather the execution records
+                    # Build call record after WAF response
                     call_record = {
                         "id": call_id,
                         "tool": spec.tool,
                         "parameters": spec.parameters,
                         "allowed": waf_res.allowed,
-                        "disposition": waf_res.disposition
+                        "disposition": waf_res.disposition,
                     }
 
                     if waf_res.allowed:
@@ -259,7 +351,6 @@ class Agent:
 
                 if loop_status == "blocked":
                     break
-
                 # Proceed to next generation step with appended tool context
                 continue
 
