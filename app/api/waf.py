@@ -14,7 +14,7 @@ from app.rules.param_validation import ParameterValidationRule
 from app.rules.data_scope import DataScopeRule
 from app.rules.sequence import SequenceRule, SequenceRepository
 from app.schemas import WafInvokeRequest, WafInvokeResponse
-from app.tools.registry import registry
+from app.tools.registry import registry, WAF_TOOL_EXECUTION_CONTEXT
 
 logger = logging.getLogger("agent_waf.api.waf")
 router = APIRouter()
@@ -206,7 +206,13 @@ async def invoke_tool(
 
     # 6. Execute registered tool handler safely catching exceptions
     try:
-        tool_result = await registry.execute(body.tool, body.parameters)
+        # Enter trusted WAF execution context
+        token = WAF_TOOL_EXECUTION_CONTEXT.set(True)
+        try:
+            tool_result = await registry.execute(body.tool, body.parameters)
+        finally:
+            # Ensure the context is cleared even if the tool raises
+            WAF_TOOL_EXECUTION_CONTEXT.reset(token)
     except Exception as e:
         logger.error(f"Registered tool '{body.tool}' handler raised an runtime exception: {e}", exc_info=True)
         # TOOL_ERROR: Allowed to execute, but tool failed. Do NOT record sequence event context.

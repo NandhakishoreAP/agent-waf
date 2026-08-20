@@ -1,6 +1,16 @@
 import logging
 from typing import Callable, Any, Dict, Awaitable
 
+# Security guard imports
+from contextvars import ContextVar
+
+# Context variable indicating we are inside the trusted WAF execution path
+WAF_TOOL_EXECUTION_CONTEXT: ContextVar[bool] = ContextVar("waf_tool_execution_context", default=False)
+
+class DirectToolExecutionError(RuntimeError):
+    """Raised when a tool is invoked outside of the WAF execution context."""
+    pass
+
 logger = logging.getLogger("agent_waf.tools.registry")
 
 class ToolRegistry:
@@ -23,7 +33,14 @@ class ToolRegistry:
         return self._tools.get(name)
 
     async def execute(self, name: str, parameters: Dict[str, Any]) -> Any:
-        """Execute a registered tool with parameters."""
+        """Execute a registered tool with parameters.
+        This method must only be called from within the WAF execution context.
+        """
+        # Enforce that we are inside the trusted WAF context
+        if not WAF_TOOL_EXECUTION_CONTEXT.get():
+            raise DirectToolExecutionError(
+                "Direct tool execution is prohibited. Tools must be invoked through the WAF."
+            )
         handler = self.get(name)
         if not handler:
             raise KeyError(f"Tool {name} not found")
