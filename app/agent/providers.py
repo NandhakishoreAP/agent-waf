@@ -82,6 +82,87 @@ class OpenAIProvider(LLMProvider):
             "content": message.content or ""
         }
 
+class GroqProvider(LLMProvider):
+    def __init__(
+        self, 
+        api_key: str | None = None, 
+        model: str | None = None, 
+        base_url: str | None = None
+    ):
+        self.api_key = api_key or settings.GROQ_API_KEY
+        self.model = model or getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+        self.base_url = base_url or settings.GROQ_BASE_URL
+        self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url) if self.api_key else None
+
+    async def generate(
+        self, 
+        messages: List[Dict[str, Any]], 
+        tools: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        if not self.client or not self.api_key:
+            raise ValueError("Groq API key is missing. Set the GROQ_API_KEY environment variable.")
+
+        formatted_tools = None
+        if tools:
+            formatted_tools = []
+            for t in tools:
+                formatted_tools.append({
+                    "type": "function",
+                    "function": t
+                })
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=formatted_tools,
+                temperature=0.0
+            )
+        except Exception as e:
+            logger.error(f"Groq API call failed: {e}", exc_info=True)
+            raise
+
+        if not response or not getattr(response, "choices", None) or len(response.choices) == 0:
+            raise ValueError("Invalid or empty response received from Groq LLM provider.")
+
+        choice = response.choices[0]
+        if not hasattr(choice, "message") or choice.message is None:
+            raise ValueError("Invalid choice structure in Groq response.")
+
+        message = choice.message
+
+        if getattr(message, "tool_calls", None):
+            calls = []
+            for tc in message.tool_calls:
+                args_raw = getattr(tc.function, "arguments", "{}")
+                if isinstance(args_raw, dict):
+                    args = args_raw
+                elif isinstance(args_raw, str):
+                    try:
+                        args = json.loads(args_raw)
+                    except Exception:
+                        args = {}
+                else:
+                    args = {}
+                calls.append({
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": args if isinstance(args, dict) else {}
+                })
+            return {
+                "type": "tool_calls",
+                "tool_calls": calls
+            }
+
+        content = getattr(message, "content", None)
+        if content is not None:
+            return {
+                "type": "text",
+                "content": content
+            }
+
+        raise ValueError("Invalid LLM response: neither content nor tool_calls was provided.")
+
 class TestLLMProvider(LLMProvider):
     """
     Deterministic Test LLM Provider for local automated integration checks.

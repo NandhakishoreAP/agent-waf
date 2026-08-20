@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.client import WAFClient
-from app.agent.providers import LLMProvider, OpenAIProvider, TestLLMProvider
+from app.agent.providers import GroqProvider, LLMProvider, OpenAIProvider, TestLLMProvider
 from app.agent.orchestrator import Agent
 from app.config import settings
 
@@ -29,9 +29,18 @@ class AgentRunResponse(BaseModel):
 
 # Dependency injection helpers
 def get_llm_provider() -> LLMProvider:
-    if settings.LLM_PROVIDER == "openai":
+    provider = settings.LLM_PROVIDER.lower() if settings.LLM_PROVIDER else ""
+    if provider == "openai":
         return OpenAIProvider()
-    return TestLLMProvider()
+    elif provider == "groq":
+        return GroqProvider()
+    elif provider == "test":
+        return TestLLMProvider()
+    else:
+        raise ValueError(
+            f"Unsupported LLM provider: '{settings.LLM_PROVIDER}'. "
+            "Supported providers are 'openai', 'groq', and 'test'."
+        )
 
 def get_waf_client() -> WAFClient:
     return WAFClient(

@@ -16,6 +16,7 @@ class Settings:
 
     GROQ_API_KEY: str | None = os.getenv("GROQ_API_KEY")
     GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./agent_waf.db")
     WAF_ADMIN_API_KEY: str = os.getenv("WAF_ADMIN_API_KEY", "changeme")
     POLICY_FILE: str = os.getenv("POLICY_FILE", "app/policies/waf_policy.yaml")
@@ -46,6 +47,8 @@ class Settings:
             # 3. Ensure API keys / LLM secrets are populated in production if used
             if self.LLM_PROVIDER == "openai" and not self.OPENAI_API_KEY:
                 raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER is 'openai' in production")
+            if self.LLM_PROVIDER == "groq" and not self.GROQ_API_KEY:
+                raise ValueError("GROQ_API_KEY is required when LLM_PROVIDER is 'groq' in production")
 
 settings = Settings()
 settings.validate_production()

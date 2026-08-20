@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   db:
@@ -32,9 +31,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://waf_user:devpassword@db/agent_waf
       - SEED_TEST_DATA=true
       - WAF_ADMIN_API_KEY=dev_admin_key_override
-      - LLM_PROVIDER=openai
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-dev_mock_key_for_testing}
-      - OPENAI_MODEL=gpt-4o-mini
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_BASE_URL=${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+      - GROQ_MODEL=openai/gpt-oss-120b
       - PORT=8000
     depends_on:
       db:
