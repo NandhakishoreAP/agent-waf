@@ -23,6 +23,11 @@ class Settings:
     AGENT_WAF_TIMEOUT_SECONDS: float = float(os.getenv("AGENT_WAF_TIMEOUT_SECONDS", "5.0"))
     MAX_AGENT_STEPS: int = int(os.getenv("MAX_AGENT_STEPS", "10"))
 
+    # Observability
+    OBSERVABILITY_ENABLED: bool = os.getenv("OBSERVABILITY_ENABLED", "true").lower() == "true"
+    OBSERVABILITY_MAX_PAGE_SIZE: int = int(os.getenv("OBSERVABILITY_MAX_PAGE_SIZE", "100"))
+    SSE_HEARTBEAT_SECONDS: int = int(os.getenv("SSE_HEARTBEAT_SECONDS", "15"))
+
 settings = Settings()
 
 def load_policy_yaml(filepath: str):

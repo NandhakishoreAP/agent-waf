@@ -102,7 +102,8 @@ class Agent:
         session_id: str,
         llm_provider: LLMProvider,
         waf_client: WAFClient,
-        max_steps: Optional[int] = None
+        max_steps: Optional[int] = None,
+        correlation_id: Optional[str] = None
     ):
         self.agent_id = agent_id
         self.session_id = session_id
@@ -110,6 +111,7 @@ class Agent:
         self.waf_client = waf_client
         self.max_steps = max_steps or settings.MAX_AGENT_STEPS
         self.tools = TOOL_SCHEMAS
+        self.correlation_id = correlation_id
 
     def _validate_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[str]:
         """
@@ -206,7 +208,8 @@ class Agent:
                         agent_id=self.agent_id,
                         session_id=self.session_id,
                         tool=tool_name,
-                        parameters=arguments
+                        parameters=arguments,
+                        correlation_id=self.correlation_id
                     )
 
                     # Gather the execution records

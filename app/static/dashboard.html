@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent WAF Security Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0d13;
+            --card-bg: rgba(22, 27, 34, 0.65);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #f0f3f6;
+            --text-secondary: #8b949e;
+            
+            /* Neon color system */
+            --color-allowed: #10b981;
+            --color-allowed-glow: rgba(16, 185, 129, 0.15);
+            --color-blocked: #ef4444;
+            --color-blocked-glow: rgba(239, 68, 68, 0.15);
+            --color-total: #8b5cf6;
+            --color-total-glow: rgba(139, 92, 246, 0.15);
+            --color-rate: #f59e0b;
+            --color-rate-glow: rgba(245, 158, 11, 0.15);
+            --color-blue: #3b82f6;
+            --color-blue-glow: rgba(59, 130, 246, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            background-image: 
+                radial-gradient(at 10% 20%, rgba(139, 92, 246, 0.08) 0px, transparent 50%),
+                radial-gradient(at 90% 80%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+            min-height: 100vh;
+            padding-bottom: 50px;
+            overflow-x: hidden;
+        }
+
+        header {
+            border-bottom: 1px solid var(--card-border);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(11, 13, 19, 0.8);
+            padding: 15px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .waf-badge {
+            background: linear-gradient(135deg, var(--color-total), var(--color-blue));
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            box-shadow: 0 0 15px var(--color-total-glow);
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #fff 40%, var(--text-secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stream-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--card-border);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #6b7280;
+            box-shadow: 0 0 0 rgba(107, 114, 128, 0.4);
+        }
+
+        .status-dot.connected {
+            background-color: var(--color-allowed);
+            animation: pulse-green 2s infinite;
+        }
+
+        @keyframes pulse-green {
+            0% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
+        }
+
+        /* Filter Controls Panel */
+        .controls-container {
+            max-width: 1400px;
+            margin: 25px auto 0 auto;
+            padding: 0 40px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .filter-group label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .filter-group select, .filter-group input {
+            background: rgba(22, 27, 34, 0.8);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            font-family: inherit;
+        }
+
+        .filter-group select:focus, .filter-group input:focus {
+            border-color: var(--color-blue);
+            box-shadow: 0 0 10px var(--color-blue-glow);
+        }
+
+        /* Overview Summary Grid */
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 25px auto 0 auto;
+            padding: 0 40px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-container {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 600px) {
+            .dashboard-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 22px 28px;
+            backdrop-filter: blur(16px);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 125px;
+            transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+        }
+
+        .stat-card.total::before { background-color: var(--color-total); }
+        .stat-card.allowed::before { background-color: var(--color-allowed); }
+        .stat-card.blocked::before { background-color: var(--color-blocked); }
+        .stat-card.rate::before { background-color: var(--color-rate); }
+
+        .stat-card::after {
+            content: '';
+            position: absolute;
+            top: -20%;
+            right: -10%;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            filter: blur(40px);
+            z-index: 0;
+            opacity: 0.15;
+        }
+
+        .stat-card.total::after { background: var(--color-total); }
+        .stat-card.allowed::after { background: var(--color-allowed); }
+        .stat-card.blocked::after { background: var(--color-blocked); }
+        .stat-card.rate::after { background: var(--color-rate); }
+
+        .stat-title {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            z-index: 1;
+        }
+
+        .stat-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-top: 5px;
+            z-index: 1;
+        }
+
+        /* Layout Grid */
+        .grid-layout {
+            max-width: 1400px;
+            margin: 25px auto 0 auto;
+            padding: 0 40px;
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 1024px) {
+            .grid-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .section-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(16px);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .section-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.15rem;
+            font-weight: 600;
+            letter-spacing: -0.2px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title svg {
+            color: var(--text-secondary);
+        }
+
+        /* SVG chart visualization */
+        .chart-container {
+            width: 100%;
+            height: 250px;
+            position: relative;
+        }
+
+        .chart-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Tables & Lists */
+        .table-wrapper {
+            overflow-x: auto;
+            width: 100%;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            text-align: left;
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        td {
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            font-family: inherit;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr.blocked-row {
+            background: rgba(239, 68, 68, 0.02);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+
+        .badge.allowed {
+            background-color: rgba(16, 185, 129, 0.12);
+            color: var(--color-allowed);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .badge.blocked {
+            background-color: rgba(239, 68, 68, 0.12);
+            color: var(--color-blocked);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .badge.shadow {
+            background-color: rgba(245, 158, 11, 0.12);
+            color: var(--color-rate);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        .rule-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            font-size: 0.85rem;
+            transition: background 0.2s;
+        }
+
+        .rule-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .rule-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .rule-badge {
+            background: var(--color-blocked-glow);
+            color: var(--color-blocked);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.75rem;
+        }
+
+        /* Recent Events Table specific styles */
+        .mono {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 0.8rem;
+        }
+
+        /* Pagination style */
+        .pagination-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 15px;
+            border-top: 1px solid var(--card-border);
+            margin-top: auto;
+        }
+
+        .pagination-info {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+
+        .pagination-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            outline: none;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        .btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Toast Warning Notification */
+        .toast-container {
+            position: fixed;
+            bottom: 25px;
+            right: 25px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toast {
+            background: rgba(11, 13, 19, 0.95);
+            border-left: 4px solid var(--color-blocked);
+            border-top: 1px solid var(--card-border);
+            border-right: 1px solid var(--card-border);
+            border-bottom: 1px solid var(--card-border);
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            width: 320px;
+            animation: slide-in 0.3s ease-out;
+            cursor: pointer;
+            transition: opacity 0.3s;
+        }
+
+        @keyframes slide-in {
+            from { transform: translateX(110%); }
+            to { transform: translateX(0); }
+        }
+
+        .toast-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: var(--color-blocked);
+        }
+
+        .toast-body {
+            font-size: 0.8rem;
+            color: var(--text-primary);
+        }
+
+        .toast-meta {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .blink-effect {
+            animation: glow-animation 1.5s ease-out;
+        }
+
+        @keyframes glow-animation {
+            0% { background-color: rgba(239, 68, 68, 0.15); }
+            100% { background-color: transparent; }
+        }
+    </style>
+</head>
+<body>
+    
+    <header>
+        <div class="header-title-container">
+            <span class="waf-badge">AGENT SECURITY</span>
+            <h1>WAF OBSERVABILITY SERVICE</h1>
+        </div>
+        <div class="stream-status">
+            <div id="statusDot" class="status-dot"></div>
+            <span id="statusTxt">CONNECTING STREAM...</span>
+        </div>
+    </header>
+
+    <!-- Filters -->
+    <div class="controls-container">
+        <div class="filter-group">
+            <label for="timeWindow">Time Window</label>
+            <select id="timeWindow">
+                <option value="5m">Last 5 Minutes</option>
+                <option value="15m">Last 15 Minutes</option>
+                <option value="1h">Last Hour</option>
+                <option value="24h" selected>Last 24 Hours</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="filterAgent">Filter Agent</label>
+            <input type="text" id="filterAgent" placeholder="agent-id">
+        </div>
+        <div class="filter-group">
+            <label for="filterTool">Filter Tool</label>
+            <input type="text" id="filterTool" placeholder="crm.read">
+        </div>
+        <div class="filter-group">
+            <label for="filterDisposition">Disposition</label>
+            <select id="filterDisposition">
+                <option value="">All Dispositions</option>
+                <option value="ALLOWED">Allowed</option>
+                <option value="BLOCKED">Blocked</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="filterRule">Blocking Rule</label>
+            <select id="filterRule">
+                <option value="">All Rules</option>
+                <option value="rate_limit">Rate Limit</option>
+                <option value="parameter_validation">Parameter Validation</option>
+                <option value="data_scope">Data Scope</option>
+                <option value="sequence">Sequence Rule</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Overview Counters -->
+    <div class="dashboard-container">
+        <div class="stat-card total">
+            <div class="stat-title">Total Tool Calls</div>
+            <div class="stat-value" id="valTotal">0</div>
+        </div>
+        <div class="stat-card allowed">
+            <div class="stat-title">Allowed Invokes</div>
+            <div class="stat-value" id="valAllowed">0</div>
+        </div>
+        <div class="stat-card blocked">
+            <div class="stat-title">Blocked Claims</div>
+            <div class="stat-value" id="valBlocked">0</div>
+        </div>
+        <div class="stat-card rate">
+            <div class="stat-title">WAF Block Rate</div>
+            <div class="stat-value" id="valRate">0.0%</div>
+        </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid-layout">
+        <!-- Left: Timeseries Summary & Recent Events -->
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+            
+            <div class="section-card">
+                <div class="section-header">
+                    <h2 class="section-title">WAF TRAFFIC & BLOCKS OVER TIME</h2>
+                </div>
+                <div class="chart-container">
+                    <svg id="timeseriesChart" class="chart-svg">
+                        <!-- Chart content is drawn dynamically with JS -->
+                    </svg>
+                </div>
+            </div>
+
+            <div class="section-card" style="min-height: 480px;">
+                <div class="section-header">
+                    <h2 class="section-title">RECENT WAF SECURITY EVENTS</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Correlation ID</th>
+                                <th>Agent ID</th>
+                                <th>Session ID</th>
+                                <th>Tool</th>
+                                <th>Result</th>
+                                <th>Rule</th>
+                            </tr>
+                        </thead>
+                        <tbody id="eventsBody">
+                            <tr>
+                                <td colspan="7" style="text-align: center; color: var(--text-secondary); padding: 40px 0;">
+                                    Loading live security event streams...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination-container">
+                    <div class="pagination-info" id="pageInfo">Showing 0-0 of 0 events</div>
+                    <div class="pagination-buttons">
+                        <button class="btn" id="prevBtn" disabled>Previous</button>
+                        <button class="btn" id="nextBtn" disabled>Next</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Side: Tool Traffic & Blocks By Rules -->
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+            
+            <div class="section-card">
+                <div class="section-header">
+                    <h2 class="section-title">TRAFFIC BY TOOL</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tool</th>
+                                <th>Total</th>
+                                <th>Blocked</th>
+                            </tr>
+                        </thead>
+                        <tbody id="toolTrafficBody">
+                            <tr>
+                                <td colspan="3" style="text-align: center; color: var(--text-secondary); padding: 20px 0;">
+                                    No data
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <div class="section-header">
+                    <h2 class="section-title">BLOCKS BY POLICE RULE</h2>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 10px;" id="rulesBody">
+                    <div style="text-align: center; color: var(--text-secondary); padding: 20px 0;">
+                        No rules evaluations recorded in this period.
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Notification Toast list -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // State management
+        const state = {
+            window: '24h',
+            agent_id: '',
+            tool: '',
+            disposition: '',
+            blocking_rule: '',
+            limit: 10,
+            offset: 0,
+            summary: { total: 0, allowed: 0, blocked: 0, rate: 0, active_agents: 0 },
+            events: [],
+            toolStats: [],
+            ruleStats: [],
+            timeseries: []
+        };
+
+        // DOM elements
+        const elements = {
+            timeWindow: document.getElementById('timeWindow'),
+            filterAgent: document.getElementById('filterAgent'),
+            filterTool: document.getElementById('filterTool'),
+            filterDisposition: document.getElementById('filterDisposition'),
+            filterRule: document.getElementById('filterRule'),
+            valTotal: document.getElementById('valTotal'),
+            valAllowed: document.getElementById('valAllowed'),
+            valBlocked: document.getElementById('valBlocked'),
+            valRate: document.getElementById('valRate'),
+            eventsBody: document.getElementById('eventsBody'),
+            toolTrafficBody: document.getElementById('toolTrafficBody'),
+            rulesBody: document.getElementById('rulesBody'),
+            statusDot: document.getElementById('statusDot'),
+            statusTxt: document.getElementById('statusTxt'),
+            timeseriesChart: document.getElementById('timeseriesChart'),
+            prevBtn: document.getElementById('prevBtn'),
+            nextBtn: document.getElementById('nextBtn'),
+            pageInfo: document.getElementById('pageInfo'),
+            toastContainer: document.getElementById('toastContainer')
+        };
+
+        // Event listener bindings
+        elements.timeWindow.addEventListener('change', (e) => {
+            state.window = e.target.value;
+            state.offset = 0;
+            refreshData();
+        });
+
+        // Set up search inputs with quick debouncing
+        let debounceTimer;
+        const debounceInputSearch = () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                state.agent_id = elements.filterAgent.value.trim();
+                state.tool = elements.filterTool.value.trim();
+                state.offset = 0;
+                refreshData();
+            }, 300);
+        };
+        elements.filterAgent.addEventListener('input', debounceInputSearch);
+        elements.filterTool.addEventListener('input', debounceInputSearch);
+
+        elements.filterDisposition.addEventListener('change', (e) => {
+            state.disposition = e.target.value;
+            state.offset = 0;
+            refreshData();
+        });
+
+        elements.filterRule.addEventListener('change', (e) => {
+            state.blocking_rule = e.target.value;
+            state.offset = 0;
+            refreshData();
+        });
+
+        elements.prevBtn.addEventListener('click', () => {
+            if (state.offset > 0) {
+                state.offset = Math.max(0, state.offset - state.limit);
+                refreshRecentEvents();
+            }
+        });
+
+        elements.nextBtn.addEventListener('click', () => {
+            if (state.events.length === state.limit) {
+                state.offset += state.limit;
+                refreshRecentEvents();
+            }
+        });
+
+        // REST calls
+        async function fetchAPI(endpoint, params = {}) {
+            const url = new URL(window.location.origin + endpoint);
+            Object.keys(params).forEach(key => {
+                if (params[key] !== undefined && params[key] !== null && params[key] !== '') {
+                    url.searchParams.append(key, params[key]);
+                }
+            });
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Endpoint error: status ${response.status}`);
+            }
+            return await response.json();
+        }
+
+        async function refreshSummary() {
+            try {
+                const data = await fetchAPI('/api/observability/summary', { window: state.window });
+                elements.valTotal.innerText = data.total_calls.toLocaleString();
+                elements.valAllowed.innerText = data.allowed_calls.toLocaleString();
+                elements.valBlocked.innerText = data.blocked_calls.toLocaleString();
+                elements.valRate.innerText = `${(data.block_rate * 100).toFixed(1)}%`;
+            } catch (err) {
+                console.error("Summary load failure", err);
+            }
+        }
+
+        async function refreshToolTraffic() {
+            try {
+                const tools = await fetchAPI('/api/observability/tools', { window: state.window });
+                let html = '';
+                if (tools.length === 0) {
+                    html = `<tr><td colspan="3" style="text-align: center; color: var(--text-secondary); padding: 20px 0;">No tool calls detected</td></tr>`;
+                } else {
+                    tools.forEach(row => {
+                        html += `
+                            <tr>
+                                <td><span class="mono">${row.tool}</span></td>
+                                <td style="font-weight: 500;">${row.total}</td>
+                                <td style="color: ${row.blocked > 0 ? 'var(--color-blocked)' : 'var(--text-secondary)'}; font-weight: 500;">${row.blocked}</td>
+                            </tr>
+                        `;
+                    });
+                }
+                elements.toolTrafficBody.innerHTML = html;
+            } catch (err) {
+                console.error("Tools load failure", err);
+            }
+        }
+
+        async function refreshRuleStats() {
+            try {
+                const rules = await fetchAPI('/api/observability/blocks', { window: state.window });
+                let html = '';
+                let totalBlocks = 0;
+                rules.forEach(r => totalBlocks += r.blocks);
+
+                if (totalBlocks === 0) {
+                    html = `<div style="text-align: center; color: var(--text-secondary); padding: 20px 0;">No rule violations triggered.</div>`;
+                } else {
+                    // Sort rules alphabetically or by count
+                    rules.sort((a,b) => b.blocks - a.blocks).forEach(r => {
+                        html += `
+                            <div class="rule-item">
+                                <span class="rule-name">${r.rule.replace('_', ' ').toUpperCase()}</span>
+                                <span class="rule-badge">${r.blocks} blocks</span>
+                            </div>
+                        `;
+                    });
+                }
+                elements.rulesBody.innerHTML = html;
+            } catch (err) {
+                console.error("Rules stat load failure", err);
+            }
+        }
+
+        async function refreshRecentEvents() {
+            try {
+                const events = await fetchAPI('/api/observability/events', {
+                    window: state.window,
+                    agent_id: state.agent_id,
+                    tool: state.tool,
+                    disposition: state.disposition,
+                    blocking_rule: state.blocking_rule,
+                    limit: state.limit,
+                    offset: state.offset
+                });
+                
+                state.events = events;
+                
+                let html = '';
+                if (events.length === 0) {
+                    html = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary); padding: 40px 0;">No matching security records.</td></tr>`;
+                    elements.prevBtn.disabled = state.offset === 0;
+                    elements.nextBtn.disabled = true;
+                    elements.pageInfo.innerText = `Showing 0-0 of 0 events`;
+                } else {
+                    events.forEach(ev => {
+                        const date = new Date(ev.timestamp);
+                        const isBlocked = ev.disposition !== 'ALLOWED';
+                        const dispBadge = isBlocked ? 'blocked' : 'allowed';
+                        
+                        html += `
+                            <tr class="${isBlocked ? 'blocked-row' : ''}" id="ev-${ev.id}">
+                                <td class="mono">${date.toLocaleTimeString()}</td>
+                                <td class="mono">${(ev.correlation_id || '-').substring(0, 8)}...</td>
+                                <td class="mono">${ev.agent_id}</td>
+                                <td class="mono">${ev.session_id}</td>
+                                <td><span class="mono">${ev.tool}</span></td>
+                                <td><span class="badge ${dispBadge}">${ev.disposition}</span></td>
+                                <td style="color: var(--color-blocked); font-weight: 500;">${ev.blocking_rule || '-'}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    elements.prevBtn.disabled = state.offset === 0;
+                    elements.nextBtn.disabled = events.length < state.limit;
+                    
+                    const startRange = state.offset + 1;
+                    const endRange = state.offset + events.length;
+                    elements.pageInfo.innerText = `Showing ${startRange}-${endRange} events`;
+                }
+                elements.eventsBody.innerHTML = html;
+            } catch (err) {
+                console.error("Events load failure", err);
+            }
+        }
+
+        async function refreshCharts() {
+            try {
+                const ts = await fetchAPI('/api/observability/timeseries', { window: state.window });
+                state.timeseries = ts;
+                renderChart(ts);
+            } catch (err) {
+                console.error("Chart data load failure", err);
+            }
+        }
+
+        function renderChart(data) {
+            const svg = elements.timeseriesChart;
+            svg.innerHTML = ''; // Clear SVG contents
+
+            if (data.length === 0) {
+                // Render empty message inside SVG helper
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", "50%");
+                text.setAttribute("y", "50%");
+                text.setAttribute("text-anchor", "middle");
+                text.setAttribute("fill", "var(--text-secondary)");
+                text.setAttribute("font-size", "14px");
+                text.textContent = "Insufficient timeseries metrics to plot chart.";
+                svg.appendChild(text);
+                return;
+            }
+
+            const width = svg.clientWidth || 800;
+            const height = 230;
+            const paddingRight = 40;
+            const paddingLeft = 40;
+            const paddingTop = 20;
+            const paddingBottom = 40;
+
+            const chartWidth = width - paddingLeft - paddingRight;
+            const chartHeight = height - paddingTop - paddingBottom;
+
+            // Compute domains
+            const maxVal = Math.max(...data.map(d => Math.max(d.allowed || 0, d.blocked || 0)), 5);
+
+            // Time coordinates
+            const xCoords = data.map((_, i) => paddingLeft + (i / (data.length - 1 || 1)) * chartWidth);
+            
+            // Y calculations helper
+            const yCoord = (val) => paddingTop + chartHeight - (val / maxVal) * chartHeight;
+
+            // DRAW Y-AXIS GRID LINES
+            const gridLinesCount = 4;
+            for (let i = 0; i <= gridLinesCount; i++) {
+                const val = (maxVal / gridLinesCount) * i;
+                const y = yCoord(val);
+                
+                // Horizontal gridline
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", paddingLeft);
+                line.setAttribute("y1", y);
+                line.setAttribute("x2", width - paddingRight);
+                line.setAttribute("y2", y);
+                line.setAttribute("stroke", "rgba(255,255,255,0.03)");
+                line.setAttribute("stroke-width", "1");
+                svg.appendChild(line);
+
+                // Grid label
+                const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                label.setAttribute("x", paddingLeft - 10);
+                label.setAttribute("y", y + 4);
+                label.setAttribute("text-anchor", "end");
+                label.setAttribute("fill", "var(--text-secondary)");
+                label.setAttribute("font-size", "10px");
+                label.setAttribute("font-family", "Roboto Mono");
+                label.textContent = Math.round(val);
+                svg.appendChild(label);
+            }
+
+            // Draw X-axis timestamps labels
+            const skipStep = Math.max(1, Math.floor(data.length / 5));
+            data.forEach((d, i) => {
+                if (i % skipStep === 0 || i === data.length - 1) {
+                    const x = xCoords[i];
+                    const date = new Date(d.timestamp);
+                    const labelStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    text.setAttribute("x", x);
+                    text.setAttribute("y", height - 10);
+                    text.setAttribute("text-anchor", "middle");
+                    text.setAttribute("fill", "var(--text-secondary)");
+                    text.setAttribute("font-size", "10px");
+                    text.setAttribute("font-family", "Roboto Mono");
+                    text.textContent = labelStr;
+                    svg.appendChild(text);
+
+                    // Tiny tick mark
+                    const tick = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    tick.setAttribute("x1", x);
+                    tick.setAttribute("y1", height - paddingBottom);
+                    tick.setAttribute("x2", x);
+                    tick.setAttribute("y2", height - paddingBottom + 5);
+                    tick.setAttribute("stroke", "rgba(255,255,255,0.08)");
+                    svg.appendChild(tick);
+                }
+            });
+
+            // PLOT THE LINES
+            // Allowed Line
+            let allowedPoints = data.map((d, i) => `${xCoords[i]},${yCoord(d.allowed)}`).join(' ');
+            const allowedPolyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+            allowedPolyline.setAttribute("fill", "none");
+            allowedPolyline.setAttribute("stroke", "var(--color-allowed)");
+            allowedPolyline.setAttribute("stroke-width", "2.5");
+            allowedPolyline.setAttribute("points", allowedPoints);
+            svg.appendChild(allowedPolyline);
+
+            // Allowed Area underneath
+            let allowedAreaPoints = `${paddingLeft},${height-paddingBottom} ` + allowedPoints + ` ${width-paddingRight},${height-paddingBottom}`;
+            const allowedArea = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            allowedArea.setAttribute("fill", "rgba(16, 185, 129, 0.04)");
+            allowedArea.setAttribute("points", allowedAreaPoints);
+            svg.appendChild(allowedArea);
+
+            // Blocked Line
+            let blockedPoints = data.map((d, i) => `${xCoords[i]},${yCoord(d.blocked)}`).join(' ');
+            const blockedPolyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+            blockedPolyline.setAttribute("fill", "none");
+            blockedPolyline.setAttribute("stroke", "var(--color-blocked)");
+            blockedPolyline.setAttribute("stroke-dasharray", "4 3");
+            blockedPolyline.setAttribute("stroke-width", "2");
+            blockedPolyline.setAttribute("points", blockedPoints);
+            svg.appendChild(blockedPolyline);
+        }
+
+        // Refreshes entire UI dashboard
+        function refreshData() {
+            refreshSummary();
+            refreshToolTraffic();
+            refreshRuleStats();
+            refreshRecentEvents();
+            refreshCharts();
+        }
+
+        // Subscribes to real-time Server-Sent Events stream
+        let eventSource;
+        function connectSSE() {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            elements.statusDot.className = 'status-dot';
+            elements.statusTxt.innerText = 'CONNECTING TO STREAM...';
+
+            eventSource = new EventSource('/api/observability/stream');
+
+            eventSource.onopen = () => {
+                elements.statusDot.className = 'status-dot connected';
+                elements.statusTxt.innerText = 'LIVE STREAM STREAMING';
+                console.log("Observability SSE stream connected successfully.");
+            };
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log("Real-time WAF security log event: ", data);
+
+                    // 1. Process Event
+                    // Filter matches: verify if the new event matches active filters
+                    let matchesFilter = true;
+                    if (state.agent_id && state.agent_id !== data.agent_id) matchesFilter = false;
+                    if (state.tool && state.tool !== data.tool) matchesFilter = false;
+                    if (state.disposition && state.disposition !== data.disposition) matchesFilter = false;
+                    if (state.blocking_rule && state.blocking_rule !== data.blocking_rule) matchesFilter = false;
+
+                    if (matchesFilter && state.offset === 0) {
+                        // Prepend to bottom of list and preserve size
+                        const date = new Date(data.timestamp);
+                        const isBlocked = data.disposition !== 'ALLOWED';
+                        const badge = isBlocked ? 'blocked' : 'allowed';
+                        
+                        const row = document.createElement('tr');
+                        row.className = isBlocked ? 'blocked-row blink-effect' : 'blink-effect';
+                        row.id = `ev-${data.id}`;
+                        row.innerHTML = `
+                            <td class="mono">${date.toLocaleTimeString()}</td>
+                            <td class="mono">${(data.correlation_id || '-').substring(0, 8)}...</td>
+                            <td class="mono">${data.agent_id}</td>
+                            <td class="mono">${data.session_id}</td>
+                            <td><span class="mono">${data.tool}</span></td>
+                            <td><span class="badge ${badge}">${data.disposition}</span></td>
+                            <td style="color: var(--color-blocked); font-weight: 500;">${data.blocking_rule || '-'}</td>
+                        `;
+                        
+                        // Insert row
+                        const tbody = elements.eventsBody;
+                        if (tbody.children.length > 0 && tbody.children[0].cells.length === 1) {
+                            tbody.innerHTML = '';
+                        }
+                        tbody.insertBefore(row, tbody.firstChild);
+
+                        // Enforce page limits size
+                        if (tbody.children.length > state.limit) {
+                            tbody.removeChild(tbody.lastChild);
+                        }
+                        
+                        // Trigger micro-fade effect
+                        setTimeout(() => {
+                            row.classList.remove('blink-effect');
+                        }, 1500);
+                    }
+
+                    // 2. Trigger active browser notifications/toast alerts if blocked call occurred
+                    if (data.disposition !== 'ALLOWED') {
+                        createWarningToast(data);
+                    }
+
+                    // 3. Debounce full dashboard reload in 500ms to preserve correct DB state aggregation
+                    debounceRefresh();
+
+                } catch (err) {
+                    console.error("Failed to parse websocket event data:", err);
+                }
+            };
+
+            eventSource.onerror = (err) => {
+                console.error("SSE socket error captured:", err);
+                elements.statusDot.className = 'status-dot';
+                elements.statusTxt.innerText = 'DISCONNECTED. RETRYING...';
+            };
+        }
+
+        let refreshDebounceTimer;
+        function debounceRefresh() {
+            clearTimeout(refreshDebounceTimer);
+            refreshDebounceTimer = setTimeout(() => {
+                refreshData();
+            }, 600);
+        }
+
+        function createWarningToast(eventData) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            
+            toast.innerHTML = `
+                <div class="toast-header">
+                    <span>⚠️ SECURITY BLOCK ALERT</span>
+                    <span style="font-size: 0.7rem; cursor: pointer; color: var(--text-secondary);" onclick="this.parentElement.parentElement.remove()">✕</span>
+                </div>
+                <div class="toast-body">
+                    <strong>Rule: ${eventData.blocking_rule ? eventData.blocking_rule.toUpperCase() : 'WAF'}</strong><br/>
+                    Agent <code>${eventData.agent_id}</code> attempting tool <code>${eventData.tool}</code> got blocked.
+                </div>
+                <div class="toast-meta">
+                    Session: ${eventData.session_id} | Corr: ${(eventData.correlation_id || '').substring(0, 8)}
+                </div>
+            `;
+            
+            elements.toastContainer.appendChild(toast);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, 5000);
+        }
+
+        // On document ready
+        window.addEventListener('load', () => {
+            refreshData();
+            connectSSE();
+        });
+
+        // Handle resize chart adjustment
+        window.addEventListener('resize', () => {
+            if (state.timeseries.length > 0) {
+                renderChart(state.timeseries);
+            }
+        });
+    </script>
+</body>
+</html>

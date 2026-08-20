@@ -87,18 +87,26 @@ async def invoke_tool(
 
     # 4. Evaluate all security rules (enforce order: rate_limit -> param_validation -> data_scope -> sequence)
     import time
+    import uuid
+    import re
+    
     start_time = time.time()
+    CORRELATION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{8,64}$")
+    
+    corr_id = getattr(request.state, "correlation_id", None)
+    if not corr_id:
+        h_corr = request.headers.get("X-Correlation-ID")
+        if h_corr and CORRELATION_ID_PATTERN.match(h_corr):
+            corr_id = h_corr
+        else:
+            corr_id = str(uuid.uuid4())
 
     async def write_audit_log(disposition_val: str, rules_list: list, status_code: int):
         try:
             from app.models import ToolCallLog, DispositionEnum
-            # Sanitize parameters (redact malicious prompt injections and common secrets)
-            sanitized_params = {}
-            for k, v in body.parameters.items():
-                if isinstance(v, str) and ("ignore" in v.lower() or "secret" in k.lower() or "token" in k.lower() or "password" in k.lower()):
-                    sanitized_params[k] = "[REDACTED]"
-                else:
-                    sanitized_params[k] = v
+            from app.utils.sanitization import sanitize_parameters
+            
+            sanitized_params = sanitize_parameters(body.parameters)
 
             # Match final disposition enum
             if disposition_val == "ALLOWED":
@@ -117,10 +125,19 @@ async def invoke_tool(
                 parameters_sanitized=sanitized_params,
                 rule_evaluations=rules_list,
                 final_disposition=enum_disp,
-                latency_ms=latency
+                latency_ms=latency,
+                correlation_id=corr_id
             )
             db.add(audit_log)
             await db.commit()
+
+            # Publish event to real-time subscribers
+            try:
+                from app.observability.publisher import publish_event
+                await publish_event(audit_log)
+            except Exception as pe:
+                logger.error(f"Failed to publish event to stream: {pe}")
+
         except Exception as ex:
             logger.error(f"Failed to record WAF database audit log: {ex}", exc_info=True)
             raise HTTPException(
@@ -156,7 +173,8 @@ async def invoke_tool(
                 "tool": body.tool,
                 "disposition": "BLOCKED",
                 "rules": rules_evals,
-                "tool_result": None
+                "tool_result": None,
+                "correlation_id": corr_id
             }
         )
 
@@ -181,7 +199,8 @@ async def invoke_tool(
                 "tool": body.tool,
                 "disposition": engine_result.final_disposition.value,
                 "rules": rules_evals,
-                "tool_result": None
+                "tool_result": None,
+                "correlation_id": corr_id
             }
         )
 
@@ -201,7 +220,8 @@ async def invoke_tool(
                 "tool": body.tool,
                 "disposition": "TOOL_ERROR",
                 "rules": rules_evals,
-                "tool_result": None
+                "tool_result": None,
+                "correlation_id": corr_id
             }
         )
 
@@ -227,5 +247,6 @@ async def invoke_tool(
         "tool": body.tool,
         "disposition": "ALLOWED",
         "rules": rules_evals,
-        "tool_result": tool_result
+        "tool_result": tool_result,
+        "correlation_id": corr_id
     }

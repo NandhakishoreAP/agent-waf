@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.client import WAFClient
@@ -25,6 +25,7 @@ class AgentRunResponse(BaseModel):
     tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
     blocked_calls: List[Dict[str, Any]] = Field(default_factory=list)
     status: str
+    correlation_id: Optional[str] = None
 
 # Dependency injection helpers
 def get_llm_provider() -> LLMProvider:
@@ -48,16 +49,23 @@ def get_waf_client() -> WAFClient:
     }
 )
 async def run_agent(
+    request: Request,
     body: AgentRunRequest,
     llm_provider: LLMProvider = Depends(get_llm_provider),
     waf_client: WAFClient = Depends(get_waf_client)
 ) -> Any:
+    # Get/Validate correlation ID from request state (or headers)
+    corr_id = getattr(request.state, "correlation_id", None)
+    if not corr_id:
+        corr_id = request.headers.get("X-Correlation-ID")
+
     # Build isolated Agent context for the request (concurrency safety)
     agent_instance = Agent(
         agent_id=body.agent_id,
         session_id=body.session_id,
         llm_provider=llm_provider,
-        waf_client=waf_client
+        waf_client=waf_client,
+        correlation_id=corr_id
     )
 
     logger.info(f"Agent router received execution request: agent_id={body.agent_id}, session_id={body.session_id}")
@@ -71,5 +79,6 @@ async def run_agent(
         "response": run_result.response,
         "tool_calls": run_result.tool_calls,
         "blocked_calls": run_result.blocked_calls,
-        "status": run_result.status
+        "status": run_result.status,
+        "correlation_id": corr_id
     }

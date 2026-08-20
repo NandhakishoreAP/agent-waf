@@ -40,7 +40,8 @@ class WAFClient:
         agent_id: str,
         session_id: str,
         tool: str,
-        parameters: dict
+        parameters: dict,
+        correlation_id: Optional[str] = None
     ) -> WAFResult:
         """
         Sends the tool invocation to the WAF proxy endpoint POST /waf/invoke.
@@ -63,6 +64,10 @@ class WAFClient:
                 error=f"WAFUnavailable: WAF service connection failed - simulated timeout of {self.timeout}s"
             )
 
+        headers = {}
+        if correlation_id:
+            headers["X-Correlation-ID"] = correlation_id
+
         if self.app:
             transport = httpx.ASGITransport(app=self.app)
             client = httpx.AsyncClient(transport=transport)
@@ -74,6 +79,7 @@ class WAFClient:
                 response = await client.post(
                     url,
                     json=payload,
+                    headers=headers,
                     timeout=self.timeout
                 )
             except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.TimeoutException) as e:

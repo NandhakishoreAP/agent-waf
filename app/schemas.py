@@ -26,6 +26,7 @@ class ToolCallLogResponse(BaseModel):
     rule_evaluations: Any
     final_disposition: DispositionEnum
     latency_ms: Optional[int] = None
+    correlation_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -93,3 +94,49 @@ class WafInvokeResponse(BaseModel):
     disposition: str
     rules: list = Field(default_factory=list)
     tool_result: Optional[Any] = None
+    correlation_id: Optional[str] = None
+
+
+# --- Observability API Response Models ---
+
+class ObservabilitySummaryResponse(BaseModel):
+    window: str
+    total_calls: int
+    allowed_calls: int
+    blocked_calls: int
+    block_rate: float
+    active_agents: int
+
+class TimeseriesDataPoint(BaseModel):
+    timestamp: str
+    allowed: int
+    blocked: int
+
+class ToolStat(BaseModel):
+    tool: str
+    total: int
+    allowed: int
+    blocked: int
+
+class AgentStat(BaseModel):
+    agent_id: str
+    total: int
+    allowed: int
+    blocked: int
+
+class RuleStat(BaseModel):
+    rule: str
+    blocks: int
+
+class RecentWafEvent(BaseModel):
+    id: str
+    timestamp: datetime
+    agent_id: str
+    session_id: str
+    tool: str
+    parameters_sanitized: Any
+    disposition: str
+    blocking_rule: Optional[str] = None
+    correlation_id: Optional[str] = None
+    latency_ms: Optional[int] = None
+    allowed: bool

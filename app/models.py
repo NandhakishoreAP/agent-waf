@@ -33,18 +33,21 @@ class ToolCallLog(Base):
     timestamp = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),
-        nullable=False
+        nullable=False,
+        index=True
     )
-    agent_id = Column(String, ForeignKey("agents.agent_id"), nullable=False)
+    agent_id = Column(String, ForeignKey("agents.agent_id"), nullable=False, index=True)
     session_id = Column(String, nullable=False)
-    tool_name = Column(String, nullable=False)
+    tool_name = Column(String, nullable=False, index=True)
     parameters_sanitized = Column(JSON, nullable=False)  # Redacted parameters JSON
     rule_evaluations = Column(JSON, nullable=False)      # Evaluated rule outcomes JSON
     final_disposition = Column(
         Enum(DispositionEnum, native_enum=False),
-        nullable=False
+        nullable=False,
+        index=True
     )
     latency_ms = Column(Integer, nullable=True)          # Nullable latency in milliseconds
+    correlation_id = Column(String, nullable=True, index=True)
 
     # Relationship back to the agent
     agent = relationship("Agent", back_populates="logs")
